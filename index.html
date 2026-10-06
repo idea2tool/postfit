@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>postfit</title>
+<meta name="description" content="Check if your post fits on X, Bluesky, Threads, Mastodon and more. Exact X counting for CJK, emoji and links. Split long text into a thread. 推文字数计算器：中日韩文字、emoji、链接按 X 的真实规则计算，一键拆成串推。">
+<style>
+:root {
+  --bg: #ECEEF1;
+  --surface: #FFFFFF;
+  --ink: #0E1116;
+  --text-2: #4A5260;
+  --text-3: #8A92A0;
+  --accent: #2747FF;
+  --accent-hover: #1834D6;
+  --on-accent: #FFFFFF;
+  --accent-soft: #E1E6FF;
+  --mark: #FFE45C;
+  --danger: #D92D20;
+  --danger-soft: #FDE4E1;
+  --track: #E2E5EA;
+  --hard: 0 3px 0 #0E1116;
+  --radius: 6px;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0B0D10;
+    --surface: #15181D;
+    --ink: #F1F3F6;
+    --text-2: #B3BAC5;
+    --text-3: #7C8592;
+    --accent: #7C8CFF;
+    --accent-hover: #9AA6FF;
+    --on-accent: #0B0D10;
+    --accent-soft: #1D2240;
+    --mark: #8A7414;
+    --danger: #FF6B5E;
+    --danger-soft: #3A1714;
+    --track: #262B33;
+    --hard: 0 3px 0 #000;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--sans); }
+button { font: inherit; cursor: pointer; border: 0; border-radius: var(--radius); }
+button:focus-visible, textarea:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 顶栏 */
+.bar { max-width: 1120px; margin: 0 auto; padding: 28px 16px 10px; display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+.logo { font: 800 28px/1 var(--mono); letter-spacing: -.03em; background: linear-gradient(transparent 58%, var(--mark) 58%); padding: 0 2px; }
+.tag { margin: 0; color: var(--text-2); flex: 1 1 320px; }
+.link { background: none; color: var(--accent); padding: 0; font-weight: 600; }
+.link:hover { text-decoration: underline; }
+
+main { max-width: 1120px; margin: 0 auto; padding: 8px 16px 16px; display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 20px; align-items: start; }
+@media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+
+/* 编辑区：textarea 叠在一个镜像层上，镜像层负责画出荧光笔标记 */
+.head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.big { font: 800 44px/1 var(--mono); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.big small { font-size: 18px; color: var(--text-3); font-weight: 600; letter-spacing: 0; }
+.big.over { color: var(--danger); }
+.left { margin-top: 4px; color: var(--text-2); font-size: 14px; }
+.left.over { color: var(--danger); font-weight: 600; }
+.target { display: flex; gap: 8px; align-items: center; color: var(--text-2); font-size: 14px; }
+select {
+  font: 600 14px var(--mono); color: var(--ink); background: var(--surface);
+  border: 0; border-radius: var(--radius); padding: 7px 10px; box-shadow: var(--hard);
+}
+.editor { position: relative; background: var(--surface); border-radius: var(--radius); box-shadow: var(--hard); }
+.editor textarea, .editor .mirror {
+  margin: 0; width: 100%; min-height: 340px; padding: 18px 20px;
+  font: 17px/1.65 var(--sans); white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal;
+}
+.editor .mirror { position: absolute; inset: 0; color: transparent; overflow: hidden; pointer-events: none; }
+.editor .mirror mark { background: var(--mark); color: transparent; border-radius: 2px; }
+.editor .mirror .fold { box-shadow: inset 2px 0 0 var(--danger); }
+.editor textarea {
+  position: relative; display: block; resize: vertical; border: 0; background: transparent;
+  color: var(--ink); caret-color: var(--accent); border-radius: var(--radius);
+}
+.editor textarea::placeholder { color: var(--text-3); }
+.stats { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--text-2); font: 13px var(--mono); }
+.stats b { color: var(--ink); font-weight: 700; }
+.tools { margin-top: 10px; display: flex; gap: 18px; }
+
+/* 平台列表 */
+.meters { background: var(--surface); border-radius: var(--radius); padding: 6px 16px; }
+.meter { padding: 12px 0; }
+.meter + .meter { box-shadow: 0 -1px 0 var(--track); }
+.meter .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.meter .name { font: 700 14px var(--mono); }
+.meter .approx { font: 500 11px var(--sans); color: var(--text-3); margin-left: 6px; }
+.meter .num { font: 600 13px var(--mono); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.meter.over .num { color: var(--danger); }
+.track { height: 6px; background: var(--track); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+.fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width .12s; }
+.meter.over .fill { background: var(--danger); }
+.meter .note { margin-top: 6px; font-size: 12px; color: var(--text-3); }
+.meter.over .note { color: var(--danger); }
+.rules { margin: 12px 4px 0; font-size: 12px; color: var(--text-3); }
+
+/* 串推 */
+.thread { max-width: 1120px; margin: 0 auto; padding: 18px 16px 8px; }
+.thread h2 { margin: 0 0 4px; font-size: 20px; font-weight: 800; letter-spacing: -.01em; }
+.thread .sub { margin: 0 0 14px; color: var(--text-2); }
+.thread .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.btn-primary { background: var(--accent); color: var(--on-accent); font-weight: 700; padding: 10px 18px; box-shadow: var(--hard); }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+.btn-secondary { background: var(--accent-soft); color: var(--accent); font-weight: 600; padding: 6px 12px; font-size: 13px; }
+.btn-secondary:hover { filter: brightness(.96); }
+.check { display: flex; gap: 6px; align-items: center; color: var(--text-2); font-size: 14px; }
+.check input { accent-color: var(--accent); }
+.posts { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.post { background: var(--surface); border-radius: var(--radius); padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.post p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; flex: 1; }
+.post .foot { display: flex; justify-content: space-between; align-items: center; font: 12px var(--mono); color: var(--text-3); }
+.empty { color: var(--text-3); margin-top: 12px; }
+
+footer { max-width: 1120px; margin: 0 auto; padding: 24px 16px 40px; color: var(--text-3); font-size: 13px; }
+footer p { margin: 4px 0; }
+footer a { color: var(--text-2); }
+</style>
+</head>
+<body>
+<header class="bar">
+  <span class="logo">postfit</span>
+  <p class="tag" data-i18n="tagline">看看你的帖子放不放得下。中文、emoji、链接都按 X 的真实规则算。</p>
+  <button type="button" class="link" id="lang">English</button>
+</header>
+
+<main>
+  <section>
+    <div class="head">
+      <div>
+        <div class="big" id="big">0<small> / 280</small></div>
+        <div class="left" id="left"></div>
+      </div>
+      <label class="target"><span data-i18n="targetLabel">标出超出部分：</span>
+        <select id="target"></select>
+      </label>
+    </div>
+    <div class="editor">
+      <div class="mirror" id="mirror" aria-hidden="true"></div>
+      <textarea id="text" spellcheck="false" data-i18n-placeholder="placeholder" placeholder="在这里输入或粘贴你要发的内容……"></textarea>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="tools">
+      <button type="button" class="link" id="sample" data-i18n="sample">放一段示例</button>
+      <button type="button" class="link" id="clear" data-i18n="clear">清空</button>
+    </div>
+  </section>
+
+  <aside>
+    <div class="meters" id="meters"></div>
+    <p class="rules" data-i18n="rules">标「约」的平台没有公开精确算法，按字形数估算。</p>
+  </aside>
+</main>
+
+<section class="thread">
+  <h2 data-i18n="threadTitle">太长了？拆成串推</h2>
+  <p class="sub" data-i18n="threadSub">按上面选的平台拆分。优先在段落和句子结尾断开，每条都不会超出上限。</p>
+  <div class="row">
+    <button type="button" class="btn-primary" id="splitBtn" data-i18n="splitBtn">拆分</button>
+    <label class="check"><input type="checkbox" id="numbering" checked> <span data-i18n="numbering">每条末尾加编号（1/3）</span></label>
+  </div>
+  <ol class="posts" id="posts"></ol>
+  <p class="empty" id="empty" hidden></p>
+</section>
+
+<footer>
+  <p data-i18n="privacy">所有内容只在你的浏览器里处理，不会上传。草稿只保存在这台设备上。</p>
+  <p><span data-i18n="madeBy">一个大学生用 AI 做的开源小工具。</span> <a href="https://github.com/idea2tool/postfit">GitHub</a> · MIT License</p>
+</footer>
+
+<script type="module">
+import { PLATFORMS, platformById, count, cutIndex, split, stats } from './count.js';
+
+const I18N = {
+  zh: {
+    title: 'postfit · 推文字数计算器', switchTo: 'English',
+    tagline: '看看你的帖子放不放得下。中文、emoji、链接都按 X 的真实规则算。',
+    targetLabel: '标出超出部分：', placeholder: '在这里输入或粘贴你要发的内容……',
+    sample: '放一段示例', clear: '清空',
+    left: '还能写 {n}', over: '超出 {n}', fold: '超过 280 后，时间线里会折叠成「显示更多」',
+    approx: '约', rules: '标「约」的平台没有公开精确算法，按字形数估算。',
+    note_x: '中日韩文字和 emoji 算 2，链接算 23', note_bluesky: '按字形数；链接按原文算',
+    note_mastodon: '链接算 23；不同实例上限可能不同',
+    statChars: '字符', statCjk: '中日韩', statWords: '英文单词', statLinks: '链接', statEmoji: 'emoji',
+    threadTitle: '太长了？拆成串推', threadSub: '按上面选的平台拆分。优先在段落和句子结尾断开，每条都不会超出上限。',
+    splitBtn: '拆分', numbering: '每条末尾加编号（1/3）', copy: '复制', copied: '已复制',
+    fits: '不用拆，一条就放得下。', nothing: '先在上面输入内容。',
+    privacy: '所有内容只在你的浏览器里处理，不会上传。草稿只保存在这台设备上。',
+    madeBy: '一个大学生用 AI 做的开源小工具。',
+    demoText: '用 AI 做了个小工具：postfit 🧑‍💻\n\n发推最烦的就是中文算 2 个字，写到一半才发现超了。现在粘贴进来就知道还能写多少，超出的部分会用荧光笔标出来。顺便支持 Bluesky、Threads、Mastodon，太长还能一键拆成串推。\n\n这里再多写几句，让它超出 280 的限制：中文每个字算两个，所以一百四十个汉字就到头了。后面这些字都会被荧光笔标黄，一眼就能看出哪里要删。代码在这 👉 github.com/idea2tool/postfit',
+    sampleText: '用 AI 做了个小工具：postfit 🧑‍💻\n\n发推最烦的就是中文算 2 个字，写到一半才发现超了。现在粘贴进来就知道还能写多少，超出的部分会用荧光笔标出来。\n\n顺便支持 Bluesky、Threads、Mastodon，太长还能一键拆成串推。代码在这 👉 github.com/idea2tool/postfit',
+  },
+  en: {
+    title: 'postfit · does your post fit?', switchTo: '中文',
+    tagline: 'Check if your post fits. CJK text, emoji and links are counted the way X really counts them.',
+    targetLabel: 'Highlight overflow for:', placeholder: 'Type or paste your post here…',
+    sample: 'Try an example', clear: 'Clear',
+    left: '{n} left', over: '{n} over', fold: 'Past 280, the timeline collapses it behind "Show more"',
+    approx: 'approx.', rules: 'Platforms marked "approx." have no public exact rules, so they are counted by graphemes.',
+    note_x: 'CJK and emoji count as 2, links as 23', note_bluesky: 'Counted in graphemes; links count in full',
+    note_mastodon: 'Links count as 23; limits vary by instance',
+    statChars: 'chars', statCjk: 'CJK', statWords: 'words', statLinks: 'links', statEmoji: 'emoji',
+    threadTitle: 'Too long? Split it into a thread', threadSub: 'Uses the platform picked above. Breaks at paragraphs and sentences first, and every post stays under the limit.',
+    splitBtn: 'Split', numbering: 'Add numbering (1/3)', copy: 'Copy', copied: 'Copied',
+    fits: 'No need to split, it fits in one post.', nothing: 'Type something above first.',
+    privacy: 'Everything stays in your browser. Nothing is uploaded. Your draft is saved on this device only.',
+    madeBy: 'A small open-source tool made with AI by a college student.',
+    demoText: 'Made a tiny tool with AI: postfit 🧑‍💻\n\nOn X, Chinese, Japanese and Korean characters count as 2, and every link counts as 23 no matter how long it is. So posts overflow before you notice. Paste your text here and the part that will not fit gets highlighted, like this sentence right here, which is already past the limit and would be cut off. Code 👉 github.com/idea2tool/postfit',
+    sampleText: 'Made a tiny tool with AI: postfit 🧑‍💻\n\nOn X, Chinese and Japanese characters count as 2, so posts overflow before you notice. Paste your text and the part that won\'t fit gets highlighted.\n\nWorks for Bluesky, Threads and Mastodon too, and splits long text into a thread. Code 👉 github.com/idea2tool/postfit',
+  },
+};
+
+let lang = (() => {
+  const q = new URLSearchParams(location.search).get('lang');
+  if (q === 'zh' || q === 'en') return q;
+  try { const s = localStorage.getItem('postfit-lang'); if (s === 'zh' || s === 'en') return s; } catch {}
+  return /^zh\b/i.test(navigator.language || '') ? 'zh' : 'en';
+})();
+const t = (key, vars = {}) => (I18N[lang][key] ?? I18N.zh[key] ?? key).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
+const $ = s => document.querySelector(s);
+const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const fmt = n => n.toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US');
+
+const text = $('#text');
+const mirror = $('#mirror');
+let target = platformById('x');
+
+function saveDraft() { try { localStorage.setItem('postfit-draft', text.value); } catch {} }
+function loadDraft() { try { return localStorage.getItem('postfit-draft') || ''; } catch { return ''; } }
+
+function renderMirror(value) {
+  const cut = cutIndex(value, target);
+  // 时间线折叠位置只对 X Premium 有意义
+  const fold = target.fold && cut === null ? cutIndex(value, target, target.fold) : null;
+  let html;
+  if (cut !== null) html = esc(value.slice(0, cut)) + '<mark>' + esc(value.slice(cut)) + '</mark>';
+  else if (fold !== null) html = esc(value.slice(0, fold)) + '<span class="fold"></span>' + esc(value.slice(fold));
+  else html = esc(value);
+  mirror.innerHTML = html + '\n'; // 末尾补一个换行，镜像层的高度才和 textarea 一致
+  mirror.scrollTop = text.scrollTop;
+}
+
+function renderMeters(value) {
+  $('#meters').innerHTML = PLATFORMS.map(p => {
+    const n = count(value, p);
+    const over = n > p.limit;
+    const pct = Math.min(100, n / p.limit * 100);
+    let note = '';
+    if (p.id === 'xlong' && n > p.fold && !over) note = t('fold');
+    else if (over) note = t('over', { n: fmt(n - p.limit) });
+    else if (p.rule === 'x') note = t('note_x');
+    else if (p.id === 'bluesky') note = t('note_bluesky');
+    else if (p.id === 'mastodon') note = t('note_mastodon');
+    return `<div class="meter${over ? ' over' : ''}">
+      <div class="top"><span class="name">${p.name}${p.exact ? '' : `<span class="approx">${t('approx')}</span>`}</span>
+      <span class="num">${fmt(n)} / ${fmt(p.limit)}</span></div>
+      <div class="track"><div class="fill" style="width:${pct}%"></div></div>
+      ${note ? `<div class="note">${note}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function renderHead(value) {
+  const n = count(value, target);
+  const over = n > target.limit;
+  $('#big').className = 'big' + (over ? ' over' : '');
+  $('#big').innerHTML = `${fmt(n)}<small> / ${fmt(target.limit)}</small>`;
+  $('#left').className = 'left' + (over ? ' over' : '');
+  $('#left').textContent = over ? t('over', { n: fmt(n - target.limit) }) : t('left', { n: fmt(target.limit - n) });
+}
+
+function renderStats(value) {
+  const s = stats(value);
+  $('#stats').innerHTML = [['statChars', s.chars], ['statCjk', s.cjk], ['statWords', s.words], ['statLinks', s.links], ['statEmoji', s.emoji]]
+    .map(([k, v]) => `<span>${t(k)} <b>${fmt(v)}</b></span>`).join('');
+}
+
+let queued = false;
+function render() {
+  if (queued) return;
+  queued = true;
+  requestAnimationFrame(() => {
+    queued = false;
+    const value = text.value;
+    renderMirror(value); renderMeters(value); renderHead(value); renderStats(value);
+  });
+}
+
+function renderThread() {
+  const value = text.value.trim();
+  const list = $('#posts'), empty = $('#empty');
+  list.innerHTML = '';
+  if (!value) { empty.textContent = t('nothing'); empty.hidden = false; return; }
+  if (count(value, target) <= target.limit) { empty.textContent = t('fits'); empty.hidden = false; return; }
+  empty.hidden = true;
+  split(value, target, { numbering: $('#numbering').checked }).forEach(post => {
+    const li = document.createElement('li');
+    li.className = 'post';
+    const p = document.createElement('p');
+    p.textContent = post;
+    const foot = document.createElement('div');
+    foot.className = 'foot';
+    const num = document.createElement('span');
+    num.textContent = `${fmt(count(post, target))} / ${fmt(target.limit)}`;
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'btn-secondary'; btn.textContent = t('copy');
+    btn.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(post); btn.textContent = t('copied'); setTimeout(() => { btn.textContent = t('copy'); }, 1500); } catch {}
+    });
+    foot.append(num, btn);
+    li.append(p, foot);
+    list.append(li);
+  });
+}
+
+function fillTargets() {
+  const sel = $('#target');
+  sel.innerHTML = PLATFORMS.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  sel.value = target.id;
+}
+
+function applyLang() {
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  document.title = t('title');
+  for (const el of document.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
+  for (const el of document.querySelectorAll('[data-i18n-placeholder]')) el.placeholder = t(el.dataset.i18nPlaceholder);
+  $('#lang').textContent = t('switchTo');
+  $('#lang').lang = lang === 'zh' ? 'en' : 'zh-CN';
+  render();
+  if ($('#posts').children.length || !$('#empty').hidden) renderThread();
+}
+
+text.addEventListener('input', () => { render(); saveDraft(); });
+text.addEventListener('scroll', () => { mirror.scrollTop = text.scrollTop; });
+new ResizeObserver(() => { mirror.style.height = text.offsetHeight + 'px'; }).observe(text);
+$('#target').addEventListener('change', e => { target = platformById(e.target.value); render(); if ($('#posts').children.length) renderThread(); });
+$('#sample').addEventListener('click', () => { text.value = t('sampleText'); render(); saveDraft(); text.focus(); });
+$('#clear').addEventListener('click', () => { text.value = ''; render(); saveDraft(); $('#posts').innerHTML = ''; $('#empty').hidden = true; text.focus(); });
+$('#splitBtn').addEventListener('click', renderThread);
+$('#numbering').addEventListener('change', () => { if ($('#posts').children.length) renderThread(); });
+$('#lang').addEventListener('click', () => {
+  lang = lang === 'zh' ? 'en' : 'zh';
+  try { localStorage.setItem('postfit-lang', lang); } catch {}
+  applyLang();
+});
+
+fillTargets();
+// ?demo 打开时载入一段超长示例，方便直接看到标黄效果（不会覆盖已保存的草稿）
+const demo = new URLSearchParams(location.search).has('demo');
+text.value = demo ? t('demoText') : loadDraft();
+applyLang();
+</script>
+</body>
+</html>
